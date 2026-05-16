@@ -58,6 +58,12 @@ const GLchar* fragmentShaderSource = "#version 330\n"
 
 bool rotateX=false, rotateY=false, rotateZ=false;
 
+float posX = 0.0f;
+float posY = 0.0f;
+float posZ = 0.0f;
+
+float escala = 1.0f;
+
 // Função MAIN
 int main()
 {
@@ -136,11 +142,16 @@ int main()
 
 		float angle = (GLfloat)glfwGetTime();
 
-		model = glm::mat4(1); 
+		model = glm::mat4(1);
+
+		model = glm::translate(model, glm::vec3(posX, posY, posZ));
+
+		model = glm::scale(model, glm::vec3(escala, escala, escala));
+
 		if (rotateX)
 		{
 			model = glm::rotate(model, angle, glm::vec3(1.0f, 0.0f, 0.0f));
-			
+
 		}
 		else if (rotateY)
 		{
@@ -153,17 +164,23 @@ int main()
 
 		}
 
-		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-		// Chamada de desenho - drawcall
-		// Poligono Preenchido - GL_TRIANGLES
-		
 		glBindVertexArray(VAO);
-		glDrawArrays(GL_TRIANGLES, 0, 18);
 
-		// Chamada de desenho - drawcall
-		// CONTORNO - GL_LINE_LOOP
-		
-		glDrawArrays(GL_POINTS, 0, 18);
+		// Cubo 1
+		glm::mat4 model1 = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
+		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model1));
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+
+		// Cubo 2
+		glm::mat4 model2 = glm::translate(model, glm::vec3(2.0f, 0.0f, 0.0f));
+		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model2));
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+
+		// Cubo 3
+		glm::mat4 model3 = glm::translate(model, glm::vec3(-2.0f, 0.0f, 0.0f));
+		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model3));
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+
 		glBindVertexArray(0);
 
 		// Troca os buffers da tela
@@ -205,7 +222,45 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		rotateZ = true;
 	}
 
+	if (key == GLFW_KEY_W && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	{
+		posZ -= 0.1f;
+	}
 
+	if (key == GLFW_KEY_S && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	{
+		posZ += 0.1f;
+	}
+
+	if (key == GLFW_KEY_A && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	{
+		posX -= 0.1f;
+	}
+
+	if (key == GLFW_KEY_D && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	{
+		posX += 0.1f;
+	}
+
+	if (key == GLFW_KEY_I && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	{
+		posY += 0.1f;
+	}
+
+	if (key == GLFW_KEY_J && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	{
+		posY -= 0.1f;
+	}
+
+	if (key == GLFW_KEY_LEFT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	{
+		escala -= 0.1f;
+	}
+
+	if (key == GLFW_KEY_RIGHT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	{
+		escala += 0.1f;
+	}
 
 }
 
@@ -264,39 +319,61 @@ int setupShader()
 // A função retorna o identificador do VAO
 int setupGeometry()
 {
-	// Aqui setamos as coordenadas x, y e z do triângulo e as armazenamos de forma
-	// sequencial, já visando mandar para o VBO (Vertex Buffer Objects)
-	// Cada atributo do vértice (coordenada, cores, coordenadas de textura, normal, etc)
-	// Pode ser arazenado em um VBO único ou em VBOs separados
 	GLfloat vertices[] = {
 
-		//Base da pirâmide: 2 triângulos
-		//x    y    z    r    g    b
-		-0.5, -0.5, -0.5, 1.0, 1.0, 0.0,
+		// Frente - Vermelho
+		-0.5, -0.5,  0.5, 1.0, 0.0, 0.0,
+		 0.5, -0.5,  0.5, 1.0, 0.0, 0.0,
+		 0.5,  0.5,  0.5, 1.0, 0.0, 0.0,
+
+		 0.5,  0.5,  0.5, 1.0, 0.0, 0.0,
+		-0.5,  0.5,  0.5, 1.0, 0.0, 0.0,
+		-0.5, -0.5,  0.5, 1.0, 0.0, 0.0,
+
+		// Trás - Verde
+		-0.5, -0.5, -0.5, 0.0, 1.0, 0.0,
+		 0.5, -0.5, -0.5, 0.0, 1.0, 0.0,
+		 0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
+
+		 0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
+		-0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
+		-0.5, -0.5, -0.5, 0.0, 1.0, 0.0,
+
+		// Esquerda - Azul
+		-0.5,  0.5,  0.5, 0.0, 0.0, 1.0,
+		-0.5,  0.5, -0.5, 0.0, 0.0, 1.0,
+		-0.5, -0.5, -0.5, 0.0, 0.0, 1.0,
+
+		-0.5, -0.5, -0.5, 0.0, 0.0, 1.0,
+		-0.5, -0.5,  0.5, 0.0, 0.0, 1.0,
+		-0.5,  0.5,  0.5, 0.0, 0.0, 1.0,
+
+		// Direita - Amarelo
+		 0.5,  0.5,  0.5, 1.0, 1.0, 0.0,
+		 0.5,  0.5, -0.5, 1.0, 1.0, 0.0,
+		 0.5, -0.5, -0.5, 1.0, 1.0, 0.0,
+
+		 0.5, -0.5, -0.5, 1.0, 1.0, 0.0,
+		 0.5, -0.5,  0.5, 1.0, 1.0, 0.0,
+		 0.5,  0.5,  0.5, 1.0, 1.0, 0.0,
+
+		// Topo - Magenta
+		-0.5,  0.5, -0.5, 1.0, 0.0, 1.0,
+		 0.5,  0.5, -0.5, 1.0, 0.0, 1.0,
+		 0.5,  0.5,  0.5, 1.0, 0.0, 1.0,
+
+		 0.5,  0.5,  0.5, 1.0, 0.0, 1.0,
+		-0.5,  0.5,  0.5, 1.0, 0.0, 1.0,
+		-0.5,  0.5, -0.5, 1.0, 0.0, 1.0,
+
+		// Base - Ciano
+		-0.5, -0.5, -0.5, 0.0, 1.0, 1.0,
+		 0.5, -0.5, -0.5, 0.0, 1.0, 1.0,
+		 0.5, -0.5,  0.5, 0.0, 1.0, 1.0,
+
+		 0.5, -0.5,  0.5, 0.0, 1.0, 1.0,
 		-0.5, -0.5,  0.5, 0.0, 1.0, 1.0,
-		 0.5, -0.5, -0.5, 1.0, 0.0, 1.0,
-
-		 -0.5, -0.5, 0.5, 1.0, 1.0, 0.0,
-		  0.5, -0.5,  0.5, 0.0, 1.0, 1.0,
-		  0.5, -0.5, -0.5, 1.0, 0.0, 1.0,
-
-		 //
-		 -0.5, -0.5, -0.5, 1.0, 1.0, 0.0,
-		  0.0,  0.5,  0.0, 1.0, 1.0, 0.0,
-		  0.5, -0.5, -0.5, 1.0, 1.0, 0.0,
-
-		  -0.5, -0.5, -0.5, 1.0, 0.0, 1.0,
-		  0.0,  0.5,  0.0, 1.0, 0.0, 1.0,
-		  -0.5, -0.5, 0.5, 1.0, 0.0, 1.0,
-
-		   -0.5, -0.5, 0.5, 1.0, 1.0, 0.0,
-		  0.0,  0.5,  0.0, 1.0, 1.0, 0.0,
-		  0.5, -0.5, 0.5, 1.0, 1.0, 0.0,
-
-		   0.5, -0.5, 0.5, 0.0, 1.0, 1.0,
-		  0.0,  0.5,  0.0, 0.0, 1.0, 1.0,
-		  0.5, -0.5, -0.5, 0.0, 1.0, 1.0,
-
+		-0.5, -0.5, -0.5, 0.0, 1.0, 1.0,
 
 	};
 
@@ -317,15 +394,7 @@ int setupGeometry()
 	// Vincula (bind) o VAO primeiro, e em seguida  conecta e seta o(s) buffer(s) de vértices
 	// e os ponteiros para os atributos 
 	glBindVertexArray(VAO);
-	
-	//Para cada atributo do vertice, criamos um "AttribPointer" (ponteiro para o atributo), indicando: 
-	// Localização no shader * (a localização dos atributos devem ser correspondentes no layout especificado no vertex shader)
-	// Numero de valores que o atributo tem (por ex, 3 coordenadas xyz) 
-	// Tipo do dado
-	// Se está normalizado (entre zero e um)
-	// Tamanho em bytes 
-	// Deslocamento a partir do byte zero 
-	
+
 	//Atributo posição (x, y, z)
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (GLvoid*)0);
 	glEnableVertexAttribArray(0);
@@ -334,12 +403,8 @@ int setupGeometry()
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (GLvoid*)(3*sizeof(GLfloat)));
 	glEnableVertexAttribArray(1);
 
-
-	// Observe que isso é permitido, a chamada para glVertexAttribPointer registrou o VBO como o objeto de buffer de vértice 
-	// atualmente vinculado - para que depois possamos desvincular com segurança
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-	// Desvincula o VAO (é uma boa prática desvincular qualquer buffer ou array para evitar bugs medonhos)
 	glBindVertexArray(0);
 
 	return VAO;
