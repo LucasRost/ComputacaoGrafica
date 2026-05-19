@@ -9,6 +9,9 @@
 #include <iostream>
 #include <string>
 #include <assert.h>
+#include <vector>
+#include <fstream>
+#include <sstream>
 
 using namespace std;
 
@@ -23,31 +26,30 @@ using namespace std;
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-
 // Protótipo da função de callback de teclado
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode);
 
 // Protótipos das funções
 int setupShader();
-int setupGeometry();
 
-// Dimensões da janela (pode ser alterado em tempo de execução)
+// Dimensões da janela
 const GLuint WIDTH = 1000, HEIGHT = 1000;
 
-// Código fonte do Vertex Shader (em GLSL): ainda hardcoded
+// Código fonte do Vertex Shader
 const GLchar* vertexShaderSource = "#version 330\n"
 "layout (location = 0) in vec3 position;\n"
 "layout (location = 1) in vec3 color;\n"
 "uniform mat4 model;\n"
+"uniform mat4 view;\n"
+"uniform mat4 projection;\n"
 "out vec4 finalColor;\n"
 "void main()\n"
 "{\n"
-//...pode ter mais linhas de código aqui!
-"gl_Position = model * vec4(position, 1.0);\n"
+"gl_Position = projection * view * model * vec4(position, 1.0);\n"
 "finalColor = vec4(color, 1.0);\n"
 "}\0";
 
-//Códifo fonte do Fragment Shader (em GLSL): ainda hardcoded
+// Código fonte do Fragment Shader
 const GLchar* fragmentShaderSource = "#version 330\n"
 "in vec4 finalColor;\n"
 "out vec4 color;\n"
@@ -56,357 +58,421 @@ const GLchar* fragmentShaderSource = "#version 330\n"
 "color = finalColor;\n"
 "}\n\0";
 
-bool rotateX=false, rotateY=false, rotateZ=false;
+struct OBJModel
+{
+	GLuint VAO;
+	GLuint VBO;
 
-float posX = 0.0f;
-float posY = 0.0f;
-float posZ = 0.0f;
+	vector<float> vertices;
 
-float escala = 1.0f;
+	glm::vec3 position;
+	glm::vec3 rotation;
+	glm::vec3 scale;
+};
+
+vector<OBJModel> objetos;
+
+int objetoSelecionado = 0;
+
+bool modoRotacao = false;
+bool modoTranslacao = false;
+bool modoEscala = false;
+
+GLuint shaderID;
+GLint modelLoc;
+GLint viewLoc;
+GLint projectionLoc;
+
+bool loadOBJ(string path, OBJModel& model)
+{
+	vector<glm::vec3> temp_vertices;
+
+	ifstream file(path);
+
+	if (!file.is_open())
+	{
+		cout << "Erro ao abrir OBJ!" << endl;
+		return false;
+	}
+
+	string line;
+
+	while (getline(file, line))
+	{
+		stringstream ss(line);
+
+		string type;
+		ss >> type;
+
+		// Vértices
+		if (type == "v")
+		{
+			glm::vec3 vertex;
+
+			ss >> vertex.x >> vertex.y >> vertex.z;
+
+			temp_vertices.push_back(vertex);
+		}
+
+		// Faces
+		else if (type == "f")
+		{
+			vector<int> indices;
+			string vertexString;
+
+			while (ss >> vertexString)
+			{
+				stringstream vertexStream(vertexString);
+
+				string indexString;
+
+				getline(vertexStream, indexString, '/');
+
+				int index = stoi(indexString) - 1;
+
+				indices.push_back(index);
+			}
+
+			// Triangulação automática
+			for (int i = 1; i < indices.size() - 1; i++)
+			{
+				glm::vec3 v1 = temp_vertices[indices[0]];
+				glm::vec3 v2 = temp_vertices[indices[i]];
+				glm::vec3 v3 = temp_vertices[indices[i + 1]];
+
+				float r = (float)rand() / RAND_MAX;
+				float g = (float)rand() / RAND_MAX;
+				float b = (float)rand() / RAND_MAX;
+
+				vector<glm::vec3> triangle = { v1, v2, v3 };
+
+				for (auto& v : triangle)
+				{
+					model.vertices.push_back(v.x);
+					model.vertices.push_back(v.y);
+					model.vertices.push_back(v.z);
+
+					model.vertices.push_back(r);
+					model.vertices.push_back(g);
+					model.vertices.push_back(b);
+				}
+			}
+		}
+	}
+
+	glGenVertexArrays(1, &model.VAO);
+	glGenBuffers(1, &model.VBO);
+
+	glBindVertexArray(model.VAO);
+
+	glBindBuffer(GL_ARRAY_BUFFER, model.VBO);
+
+	glBufferData(
+		GL_ARRAY_BUFFER,
+		model.vertices.size() * sizeof(float),
+		model.vertices.data(),
+		GL_STATIC_DRAW
+	);
+
+	glVertexAttribPointer(
+		0,
+		3,
+		GL_FLOAT,
+		GL_FALSE,
+		6 * sizeof(float),
+		(GLvoid*)0
+	);
+
+	glEnableVertexAttribArray(0);
+
+	glVertexAttribPointer(
+		1,
+		3,
+		GL_FLOAT,
+		GL_FALSE,
+		6 * sizeof(float),
+		(GLvoid*)(3 * sizeof(float))
+	);
+
+	glEnableVertexAttribArray(1);
+
+	glBindVertexArray(0);
+
+	model.position = glm::vec3(0.0f);
+	model.rotation = glm::vec3(0.0f);
+	model.scale = glm::vec3(0.5f);
+
+	cout << "Modelo carregado com "
+		 << model.vertices.size() / 6
+		 << " vertices." << endl;
+
+	return true;
+}
 
 // Função MAIN
 int main()
 {
-	// Inicialização da GLFW
 	glfwInit();
 
-	//Muita atenção aqui: alguns ambientes não aceitam essas configurações
-	//Você deve adaptar para a versão do OpenGL suportada por sua placa
-	//Sugestão: comente essas linhas de código para desobrir a versão e
-	//depois atualize (por exemplo: 4.5 com 4 e 5)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	//Essencial para computadores da Apple
 #ifdef __APPLE__
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-	// Criação da janela GLFW
-	GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Ola 3D -- Lucas Luan Rost!", nullptr, nullptr);
+	GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Vivencial 1", nullptr, nullptr);
 	glfwMakeContextCurrent(window);
 
-	// Fazendo o registro da função de callback para a janela GLFW
 	glfwSetKeyCallback(window, key_callback);
 
-	// GLAD: carrega todos os ponteiros d funções da OpenGL
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
 		std::cout << "Failed to initialize GLAD" << std::endl;
-
 	}
 
-	// Obtendo as informações de versão
-	const GLubyte* renderer = glGetString(GL_RENDERER); /* get renderer string */
-	const GLubyte* version = glGetString(GL_VERSION); /* version as a string */
-	cout << "Renderer: " << renderer << endl;
-	cout << "OpenGL version supported " << version << endl;
+	glViewport(0, 0, WIDTH, HEIGHT);
 
-	// Definindo as dimensões da viewport com as mesmas dimensões da janela da aplicação
-	int width, height;
-	glfwGetFramebufferSize(window, &width, &height);
-	glViewport(0, 0, width, height);
-
-
-	// Compilando e buildando o programa de shader
-	GLuint shaderID = setupShader();
-
-	// Gerando um buffer simples, com a geometria de um triângulo
-	GLuint VAO = setupGeometry();
-
+	shaderID = setupShader();
 
 	glUseProgram(shaderID);
 
-	glm::mat4 model = glm::mat4(1); //matriz identidade;
-	GLint modelLoc = glGetUniformLocation(shaderID, "model");
-	//
-	model = glm::rotate(model, /*(GLfloat)glfwGetTime()*/glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+	modelLoc = glGetUniformLocation(shaderID, "model");
+	viewLoc = glGetUniformLocation(shaderID, "view");
+	projectionLoc = glGetUniformLocation(shaderID, "projection");
 
 	glEnable(GL_DEPTH_TEST);
 
+	OBJModel obj1;
+	OBJModel obj2;
 
-	// Loop da aplicação - "game loop"
+	loadOBJ("../assets/Modelos3D/suzanne.obj", obj1);
+	loadOBJ("../assets/Modelos3D/suzanne.obj", obj2);
+
+	obj1.position = glm::vec3(-1.5f, 0.0f, 0.0f);
+	obj2.position = glm::vec3(1.5f, 0.0f, 0.0f);
+
+	objetos.push_back(obj1);
+	objetos.push_back(obj2);
+
 	while (!glfwWindowShouldClose(window))
 	{
-		// Checa se houveram eventos de input (key pressed, mouse moved etc.) e chama as funções de callback correspondentes
 		glfwPollEvents();
 
-		// Limpa o buffer de cor
-		glClearColor(1.0f, 1.0f, 1.0f, 1.0f); //cor de fundo
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		glLineWidth(10);
-		glPointSize(20);
+		glm::mat4 view = glm::mat4(1.0f);
+		view = glm::translate(view, glm::vec3(0.0f, 0.0f, -5.0f));
 
-		float angle = (GLfloat)glfwGetTime();
+		glm::mat4 projection = glm::perspective(
+			glm::radians(45.0f),
+			(float)WIDTH / (float)HEIGHT,
+			0.1f,
+			100.0f
+		);
 
-		model = glm::mat4(1);
+		glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+		glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
-		model = glm::translate(model, glm::vec3(posX, posY, posZ));
-
-		model = glm::scale(model, glm::vec3(escala, escala, escala));
-
-		if (rotateX)
+		for (int i = 0; i < objetos.size(); i++)
 		{
-			model = glm::rotate(model, angle, glm::vec3(1.0f, 0.0f, 0.0f));
+			glm::mat4 model = glm::mat4(1);
 
+			model = glm::translate(model, objetos[i].position);
+
+			model = glm::rotate(model,
+				glm::radians(objetos[i].rotation.x),
+				glm::vec3(1.0f, 0.0f, 0.0f));
+
+			model = glm::rotate(model,
+				glm::radians(objetos[i].rotation.y),
+				glm::vec3(0.0f, 1.0f, 0.0f));
+
+			model = glm::rotate(model,
+				glm::radians(objetos[i].rotation.z),
+				glm::vec3(0.0f, 0.0f, 1.0f));
+
+			model = glm::scale(model, objetos[i].scale);
+
+			glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+			glBindVertexArray(objetos[i].VAO);
+
+			glDrawArrays(
+				GL_TRIANGLES,
+				0,
+				objetos[i].vertices.size() / 6
+			);
+
+			glBindVertexArray(0);
 		}
-		else if (rotateY)
-		{
-			model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
 
-		}
-		else if (rotateZ)
-		{
-			model = glm::rotate(model, angle, glm::vec3(0.0f, 0.0f, 1.0f));
-
-		}
-
-		glBindVertexArray(VAO);
-
-		// Cubo 1
-		glm::mat4 model1 = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
-		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model1));
-		glDrawArrays(GL_TRIANGLES, 0, 36);
-
-		// Cubo 2
-		glm::mat4 model2 = glm::translate(model, glm::vec3(2.0f, 0.0f, 0.0f));
-		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model2));
-		glDrawArrays(GL_TRIANGLES, 0, 36);
-
-		// Cubo 3
-		glm::mat4 model3 = glm::translate(model, glm::vec3(-2.0f, 0.0f, 0.0f));
-		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model3));
-		glDrawArrays(GL_TRIANGLES, 0, 36);
-
-		glBindVertexArray(0);
-
-		// Troca os buffers da tela
 		glfwSwapBuffers(window);
 	}
-	// Pede pra OpenGL desalocar os buffers
-	glDeleteVertexArrays(1, &VAO);
-	// Finaliza a execução da GLFW, limpando os recursos alocados por ela
+
 	glfwTerminate();
+
 	return 0;
 }
 
-// Função de callback de teclado - só pode ter uma instância (deve ser estática se
-// estiver dentro de uma classe) - É chamada sempre que uma tecla for pressionada
-// ou solta via GLFW
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mode)
 {
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, GL_TRUE);
 
-	if (key == GLFW_KEY_X && action == GLFW_PRESS)
+	// Seleção de objeto
+	if (key == GLFW_KEY_TAB && action == GLFW_PRESS)
 	{
-		rotateX = true;
-		rotateY = false;
-		rotateZ = false;
+		objetoSelecionado++;
+
+		if (objetoSelecionado >= objetos.size())
+		{
+			objetoSelecionado = 0;
+		}
+
+		cout << "Objeto selecionado: "
+			 << objetoSelecionado
+			 << endl;
 	}
 
-	if (key == GLFW_KEY_Y && action == GLFW_PRESS)
+	// Modos
+	if (key == GLFW_KEY_R && action == GLFW_PRESS)
 	{
-		rotateX = false;
-		rotateY = true;
-		rotateZ = false;
+		modoRotacao = true;
+		modoTranslacao = false;
+		modoEscala = false;
+
+		cout << "Modo Rotacao" << endl;
 	}
 
-	if (key == GLFW_KEY_Z && action == GLFW_PRESS)
+	if (key == GLFW_KEY_T && action == GLFW_PRESS)
 	{
-		rotateX = false;
-		rotateY = false;
-		rotateZ = true;
+		modoRotacao = false;
+		modoTranslacao = true;
+		modoEscala = false;
+
+		cout << "Modo Translacao" << endl;
 	}
 
-	if (key == GLFW_KEY_W && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	if (key == GLFW_KEY_S && action == GLFW_PRESS)
 	{
-		posZ -= 0.1f;
+		modoRotacao = false;
+		modoTranslacao = false;
+		modoEscala = true;
+
+		cout << "Modo Escala" << endl;
 	}
 
-	if (key == GLFW_KEY_S && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	OBJModel& obj = objetos[objetoSelecionado];
+
+	// =========================
+	// ROTAÇÃO
+	// =========================
+	if (modoRotacao)
 	{
-		posZ += 0.1f;
+		if (key == GLFW_KEY_X &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.rotation.x += 2.0f;
+		}
+
+		if (key == GLFW_KEY_Y &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.rotation.y += 2.0f;
+		}
+
+		if (key == GLFW_KEY_Z &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.rotation.z += 2.0f;
+		}
 	}
 
-	if (key == GLFW_KEY_A && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	// =========================
+	// TRANSLAÇÃO
+	// =========================
+	if (modoTranslacao)
 	{
-		posX -= 0.1f;
+		if (key == GLFW_KEY_W &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.position.y += 0.05f;
+		}
+
+		if (key == GLFW_KEY_S &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.position.y -= 0.05f;
+		}
+
+		if (key == GLFW_KEY_A &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.position.x -= 0.05f;
+		}
+
+		if (key == GLFW_KEY_D &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.position.x += 0.05f;
+		}
+
+		if (key == GLFW_KEY_Q &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.position.z += 0.05f;
+		}
+
+		if (key == GLFW_KEY_E &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.position.z -= 0.05f;
+		}
 	}
 
-	if (key == GLFW_KEY_D && (action == GLFW_PRESS || action == GLFW_REPEAT))
+	// =========================
+	// ESCALA
+	// =========================
+	if (modoEscala)
 	{
-		posX += 0.1f;
-	}
+		if (key == GLFW_KEY_UP &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.scale += glm::vec3(0.02f);
+		}
 
-	if (key == GLFW_KEY_I && (action == GLFW_PRESS || action == GLFW_REPEAT))
-	{
-		posY += 0.1f;
+		if (key == GLFW_KEY_DOWN &&
+			(action == GLFW_PRESS || action == GLFW_REPEAT))
+		{
+			obj.scale -= glm::vec3(0.02f);
+		}
 	}
-
-	if (key == GLFW_KEY_J && (action == GLFW_PRESS || action == GLFW_REPEAT))
-	{
-		posY -= 0.1f;
-	}
-
-	if (key == GLFW_KEY_LEFT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT))
-	{
-		escala -= 0.1f;
-	}
-
-	if (key == GLFW_KEY_RIGHT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT))
-	{
-		escala += 0.1f;
-	}
-
 }
 
-//Esta função está basntante hardcoded - objetivo é compilar e "buildar" um programa de
-// shader simples e único neste exemplo de código
-// O código fonte do vertex e fragment shader está nos arrays vertexShaderSource e
-// fragmentShader source no iniçio deste arquivo
-// A função retorna o identificador do programa de shader
+// Shader
 int setupShader()
 {
-	// Vertex shader
 	GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
 	glCompileShader(vertexShader);
-	// Checando erros de compilação (exibição via log no terminal)
-	GLint success;
-	GLchar infoLog[512];
-	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-	if (!success)
-	{
-		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-	}
-	// Fragment shader
+
 	GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 	glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
 	glCompileShader(fragmentShader);
-	// Checando erros de compilação (exibição via log no terminal)
-	glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-	if (!success)
-	{
-		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-	}
-	// Linkando os shaders e criando o identificador do programa de shader
+
 	GLuint shaderProgram = glCreateProgram();
+
 	glAttachShader(shaderProgram, vertexShader);
 	glAttachShader(shaderProgram, fragmentShader);
+
 	glLinkProgram(shaderProgram);
-	// Checando por erros de linkagem
-	glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-	if (!success) {
-		glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-	}
+
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 
 	return shaderProgram;
-}
-
-// Esta função está bastante harcoded - objetivo é criar os buffers que armazenam a 
-// geometria de um triângulo
-// Apenas atributo coordenada nos vértices
-// 1 VBO com as coordenadas, VAO com apenas 1 ponteiro para atributo
-// A função retorna o identificador do VAO
-int setupGeometry()
-{
-	GLfloat vertices[] = {
-
-		// Frente - Vermelho
-		-0.5, -0.5,  0.5, 1.0, 0.0, 0.0,
-		 0.5, -0.5,  0.5, 1.0, 0.0, 0.0,
-		 0.5,  0.5,  0.5, 1.0, 0.0, 0.0,
-
-		 0.5,  0.5,  0.5, 1.0, 0.0, 0.0,
-		-0.5,  0.5,  0.5, 1.0, 0.0, 0.0,
-		-0.5, -0.5,  0.5, 1.0, 0.0, 0.0,
-
-		// Trás - Verde
-		-0.5, -0.5, -0.5, 0.0, 1.0, 0.0,
-		 0.5, -0.5, -0.5, 0.0, 1.0, 0.0,
-		 0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
-
-		 0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
-		-0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
-		-0.5, -0.5, -0.5, 0.0, 1.0, 0.0,
-
-		// Esquerda - Azul
-		-0.5,  0.5,  0.5, 0.0, 0.0, 1.0,
-		-0.5,  0.5, -0.5, 0.0, 0.0, 1.0,
-		-0.5, -0.5, -0.5, 0.0, 0.0, 1.0,
-
-		-0.5, -0.5, -0.5, 0.0, 0.0, 1.0,
-		-0.5, -0.5,  0.5, 0.0, 0.0, 1.0,
-		-0.5,  0.5,  0.5, 0.0, 0.0, 1.0,
-
-		// Direita - Amarelo
-		 0.5,  0.5,  0.5, 1.0, 1.0, 0.0,
-		 0.5,  0.5, -0.5, 1.0, 1.0, 0.0,
-		 0.5, -0.5, -0.5, 1.0, 1.0, 0.0,
-
-		 0.5, -0.5, -0.5, 1.0, 1.0, 0.0,
-		 0.5, -0.5,  0.5, 1.0, 1.0, 0.0,
-		 0.5,  0.5,  0.5, 1.0, 1.0, 0.0,
-
-		// Topo - Magenta
-		-0.5,  0.5, -0.5, 1.0, 0.0, 1.0,
-		 0.5,  0.5, -0.5, 1.0, 0.0, 1.0,
-		 0.5,  0.5,  0.5, 1.0, 0.0, 1.0,
-
-		 0.5,  0.5,  0.5, 1.0, 0.0, 1.0,
-		-0.5,  0.5,  0.5, 1.0, 0.0, 1.0,
-		-0.5,  0.5, -0.5, 1.0, 0.0, 1.0,
-
-		// Base - Ciano
-		-0.5, -0.5, -0.5, 0.0, 1.0, 1.0,
-		 0.5, -0.5, -0.5, 0.0, 1.0, 1.0,
-		 0.5, -0.5,  0.5, 0.0, 1.0, 1.0,
-
-		 0.5, -0.5,  0.5, 0.0, 1.0, 1.0,
-		-0.5, -0.5,  0.5, 0.0, 1.0, 1.0,
-		-0.5, -0.5, -0.5, 0.0, 1.0, 1.0,
-
-	};
-
-	GLuint VBO, VAO;
-
-	//Geração do identificador do VBO
-	glGenBuffers(1, &VBO);
-
-	//Faz a conexão (vincula) do buffer como um buffer de array
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-
-	//Envia os dados do array de floats para o buffer da OpenGl
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-	//Geração do identificador do VAO (Vertex Array Object)
-	glGenVertexArrays(1, &VAO);
-
-	// Vincula (bind) o VAO primeiro, e em seguida  conecta e seta o(s) buffer(s) de vértices
-	// e os ponteiros para os atributos 
-	glBindVertexArray(VAO);
-
-	//Atributo posição (x, y, z)
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (GLvoid*)0);
-	glEnableVertexAttribArray(0);
-
-	//Atributo cor (r, g, b)
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), (GLvoid*)(3*sizeof(GLfloat)));
-	glEnableVertexAttribArray(1);
-
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-	glBindVertexArray(0);
-
-	return VAO;
 }
 

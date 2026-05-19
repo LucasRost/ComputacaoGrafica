@@ -49,6 +49,7 @@ set(EXERCISES
     SpherePhong
     CuboIluminacao
     Modulo2
+    Vivencial1
 )
 
 add_compile_options(-Wno-pragmas)
